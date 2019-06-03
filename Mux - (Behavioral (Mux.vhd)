@@ -1,0 +1,142 @@
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.NUMERIC_STD.ALL;
+use IEEE.STD_LOGIC_ARITH.ALL;
+use IEEE.STD_LOGIC_UNSIGNED.ALL;
+--library UNISIM;
+--use UNISIM.VComponents.all;
+
+entity Mux is
+--EntradaA y EntradaB cambian a Switches
+	Port ( Switches : in STD_LOGIC_VECTOR (8 downto 0);--Para rellenar la parte alta de A y de B.
+			 Botones : in STD_LOGIC_VECTOR (3 downto 0); --Botones para seleccionar la parte alta de A y B
+			 SwitchesExternos : in STD_LOGIC_VECTOR (1 downto 0);
+			--Switches para seleccionar mostrar parte baja, media o alta del resultado en los display's.
+			-- SeleccionadorResultado : in STD_LOGIC_VECTOR (1 downto 0); 
+			 --EntradaA : in STD_LOGIC_VECTOR (17 downto 0);
+			 --EntradaB : in STD_LOGIC_VECTOR (17 downto 0);
+			 Seg : out STD_LOGIC_VECTOR (7 downto 0);
+			 clk : in STD_LOGIC;
+			 Sel_D : out STD_LOGIC_VECTOR (3 downto 0));
+end Mux;
+
+architecture Behavioral of Mux is
+
+--for UX: Multi use entity work.Multi (Behavioral);
+
+--Señales internas a rellenar con el valor que tengan los Switches.	
+signal Multiplicando, Multiplicador  : STD_LOGIC_VECTOR (17 downto 0):=(others => '0'); 
+signal ResultadoFinal:STD_LOGIC_VECTOR (35 downto 0):=(others => '0');
+--Selecciona bloques de 16 o el de 4 bits para pasarlo a los dígitos.
+signal XX : STD_LOGIC_VECTOR (15 downto 0); 
+signal Digito:STD_LOGIC_VECTOR (3 downto 0);
+signal selmux:STD_LOGIC_VECTOR (1 downto 0):=(others => '0');
+
+
+	ATTRIBUTE LOC: STRING;
+	ATTRIBUTE LOC OF Switches: SIGNAL IS "B2,N3, E2, F3, G3, B4, K3, L3, P11"; --B2 del GPIO.!!!!
+	ATTRIBUTE LOC OF clk : SIGNAL IS "B8";
+	--ATTRIBUTE LOC OF EntradaB: SIGNAL IS "N10, V12, T12, A8, C4, B8, D9, C9";
+	--8 porque se declara el punto también o no funcionan los display.
+	ATTRIBUTE LOC OF Seg: SIGNAL IS "M12, L13, P12, N11, N14, H12, L14, N13"; 
+	ATTRIBUTE LOC OF Sel_D: SIGNAL IS "K14, M13,J12 ,F12 ";
+	ATTRIBUTE LOC OF Botones: SIGNAL IS "A7, M4, C11, G12";
+	ATTRIBUTE LOC OF SwitchesExternos: SIGNAL IS "C6, B6"; --Del GPIO!!!!!!
+
+component Multi is
+
+	Port ( In1 : in STD_LOGIC_VECTOR (17 downto 0);
+			 In2 : in STD_LOGIC_VECTOR (17 downto 0);
+			 Prod : out STD_LOGIC_VECTOR (35 downto 0));
+
+end component;
+
+begin
+
+UX: Multi port map (In1=>Multiplicando,In2=>Multiplicador,Prod=>ResultadoFinal);
+----------------------------------------------------------------------
+--Procesos para dar valores a las señales internas A más significativa, menos significativa y Señal B.
+	process(clk, Switches, Botones)
+	begin
+			if (clk'event and clk='1') then
+				
+					if Botones = "1000" then --Para asignar la parte alta de A.
+						Multiplicando (17 downto 9) <= Switches;
+						
+					elsif Botones = "0100" then --Para asignar la parte baja de A.
+						Multiplicando (8 downto 0)<= Switches;
+					
+					elsif Botones = "0010" then --Para asignar la parte alta de B.
+						Multiplicador(17 downto 9) <= Switches;
+						
+					elsif Botones = "0001" then --Para asignar la parte baja de B.
+						Multiplicador (8 downto 0) <= Switches;
+					end if;				
+					
+			end if;
+	end process;
+--------------------------------------------------
+--Proceso para escuchar a los switches que me mostraran las partes del resultado final.
+process(clk, XX, SwitchesExternos)
+	begin
+			if (clk'event and clk='1') then
+--Para asignar la parte baja del resultado final al bloque de 16 de la parte baja y luego pasarla a los display.
+					if SwitchesExternos = "00" then 
+						XX <= ResultadoFinal (15 downto 0);
+						
+					elsif SwitchesExternos = "01" then --Para asignar la parte baja de A.
+						XX <= ResultadoFinal (31 downto 16);
+					
+					elsif SwitchesExternos = "11" then --Para asignar la parte alta de B.
+						XX (15 downto 4) <= "000000000000"; --Escribimos 12 últimos ceros.
+						XX (3 downto 0) <= ResultadoFinal (35 downto 32);
+						
+					end if;				
+					
+			end if;
+	end process;
+--------------------------------------------------
+ proceso_mux: process(ResultadoFinal,clk,selmux,XX)
+	variable contamux : integer range 0 to 208325 := 0;
+		begin
+			if (clk'event and clk='1') then
+				if contamux = 208325 then --Para el multiplexado.
+					contamux := 0; --Regresa a 0 el multiplexado.
+					selmux <= selmux+1; --Cambia el MUX de display.
+				else
+					contamux := contamux+1; --Incrementa el contador para el mux.
+				end if;
+			end if;
+
+	case selmux is
+		when "00" => sel_D <= "1110"; Digito <= XX (3 downto 0);
+		when "01" => sel_D <= "1101"; Digito <= XX (7 downto 4);
+		when "10" => sel_D <= "1011"; Digito <= XX (11 downto 8);
+		when others => sel_D <= "0111"; Digito <= XX (15 downto 12);
+	end case;
+ end process proceso_mux;
+ 
+siete_seg:process(Digito)
+
+begin
+	case Digito is
+			when "0001" => Seg <= "11110011"; --"11110010";
+			when "0010" => Seg <= "01001001";
+			when "0011" => Seg <= "01100001";
+			when "0100" => Seg <= "00110011";
+			when "0101" => Seg <= "00100101";
+			when "0110" => Seg <= "00000101";
+			when "0111" => Seg <= "11110001";
+			when "1000" => Seg <= "00000001";
+			when "1001" => Seg <= "00100001";
+			when "1010" => Seg <= "00010001";
+			when "1011" => Seg <= "00000111";
+			when "1100" => Seg <= "10001101";
+			when "1101" => Seg <= "01000011";
+			when "1110" => Seg <= "00001101";
+			when "1111" => Seg <= "00011101";
+			when others => Seg <= "10000001";
+	end case;
+	end process siete_seg;
+	
+end Behavioral;
